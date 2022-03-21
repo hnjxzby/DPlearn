@@ -1,31 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Fri Oct  8 23:02:38 2021
-用resnet18来测试一下全部数据的分类效果，先前用 densenet121模型分类时，有两个类分不开。
-（5类和24类，确实用肉眼也很难分清），但是将样本均衡化和标准化后，分得很好。
-我的采样很简单，就是将样本少的类5复制了很多次。
-
-不知道用resnet18怎么样？？？成功，但是对swizzor的两类分类不太成功！！但比densenet121好！！，晚上多训练一下，200次epock，看看效果！！
-或者测试一下resnet34???
-
-综上，所以今天我要测试一下VGG16的分类效果。 hnjxzby@2021-10-17  分类效果非常差？？？？
-
-回答： 经过今天实验发现，以前训练要么没有开始，是因为model.fit()出了错。
-而准确率与ｌｏｓｓ一直不变化的原因是： 我们是迁移学习，各种参数是从ｉｍａｇｅｎｅｔ直接拿来用的。所以：
-下面这一语句很重要：
-   VGG16_MODEL.trainable=False
-
-我将它从True设置为flase 以后，程序运行正常，剩下的就交给时间了。。。长时间的等待，用更好的GPU吧 ！！！
- 
-hnjxzby@2021-10-30  为什么第04类和24类分类效果比较差呢？我用肉眼看了一下，确实很相似。其实，这里训练产生准确率不高的原因是：这些样本的原始分辨率比较大
-所以我们实验时不能将样本图缩小得太小，448*448这个大小时我用Ｒｅｓnet１８ 分类可以达到 １００％
-
-因此我准备用VGG１６也用 大的分辨率，看实验结果如何？   
-
-
-@author: WIN10
-"""
-
 
 import  matplotlib
 from    matplotlib import pyplot as plt
@@ -55,7 +28,7 @@ def preprocess(x,y):
     # x: 图片的路径，y：图片的数字编码,类别
     x = tf.io.read_file(x)
     x = tf.image.decode_jpeg(x, channels=3) # RGBA
-   ## x = tf.image.per_image_standardization(x) ### 这是我增加的规范化的一个办法。hnjxzby@2021-10-08  
+   ## x = tf.image.per_image_standardization(x) ### 这是增加的规范化的一个办法。hnjxzby@2021-10-08  
     x = tf.image.resize(x, [256, 256])
     x = tf.image.random_flip_left_right(x)
     x = tf.image.random_flip_up_down(x)
@@ -87,24 +60,9 @@ db_val = db_val.map(preprocess).batch(batchsz)
 images3, labels3, table = load_pokemon('pokemon',mode='test')
 db_test = tf.data.Dataset.from_tensor_slices((images3, labels3))
 db_test = db_test.map(preprocess).batch(batchsz)
-
 ####以上是数据集处理部分对于不同的model都是一样的
 
-
-##########下面是选择不同的model，以前我用的是Densenet121,而后测试的是ResNet18. 现在我准备测试VGG16,看看效果是否有提高？
-#############hnjxzby@2021-10-17  22：56
-
 num_classes = 25
-
-##############作为实验，我想测试一下分辩率分别为不同时的分类效果，如：
-###resnet18.build(input_shape=(4,224,224,3))
-###resnet18.build(input_shape=(4,112,112,3))
-###resnet18.build(input_shape=(4,56,56,3))
-###resnet18.build(input_shape=(4,224,224,3))
-###resnet18.summary()
-###resnet18.compile(optimizer=optimizers.Adam(lr=1e-3),
-###               loss=losses.CategoricalCrossentropy(from_logits=True),
-###               metrics=['accuracy'])
 
 IMG_SIZE=224
 BATCH_SIZE = 32
@@ -115,9 +73,6 @@ VGG16_MODEL=tf.keras.applications.VGG16(input_shape=IMG_SHAPE,include_top=False)
 
 VGG16_MODEL.trainable=False
 
-###捣鼓好多天，发现将上面一行，设置为false, 训练时的准确率直线上升，5个epoch就可以达到81%。
-###而将trainable设置为True,怎么训练 acc 和 loss都不变，浪费我好多时间。
-
 fine_tune_at = -3
 for layer in VGG16_MODEL.layers[:fine_tune_at]:
     layer.trainable = False
@@ -126,7 +81,6 @@ global_average_layer = tf.keras.layers.GlobalAveragePooling2D()
 
 #dense_layer= tf.keras.layers.Dense(512,activation = 'relu')      #我增加了一层，因为VGG16的输出是7*7*512,在此接合一下？
 #prediction_layer = tf.keras.layers.Dense(25,activation='softmax')#我将sigmoid改成了softmax应该正确??
-
 
 model = tf.keras.Sequential()
 
@@ -137,66 +91,32 @@ model.add(tf.keras.layers.Dense(512, activation='relu'))   #我增加了一层�
 model.add(tf.keras.layers.Dropout(0.5))                    #我增加了一层dropout.
 model.add(tf.keras.layers.Dense(25, activation="softmax"))
 
-
-"""
-model = tf.keras.Sequential([
-  VGG16_MODEL,
-  global_average_layer,
-  dense_layer,                                                    #我增加了一层
-  prediction_layer
-])
-"""
-
-
 model.build(input_shape=(32,224,224,3))
 model.summary()
 
-#####4. 编译模型
 model.compile(optimizer=optimizers.Adam(lr=1e-3),
              loss=losses.CategoricalCrossentropy(from_logits=True),
              metrics=["accuracy"])
 
-###以前的训练效果太差，是原因出在这吗？ 是否是应该将 from_logits=False
-
-
 img_, label_ = next(iter(db_train))
-pred_ = model.predict(img_)#此tensorflow版本在训练前，必须要先使用model.predict方法，否则后面训练会报错，原因未知
+pred_ = model.predict(img_)
 print(pred_.shape)
 
 img_1, label_1 = next(iter(db_train))
-pred_1 = model.predict(img_1)#此tensorflow版本在训练前，必须要先使用model.predict方法，否则后面训练会报错，原因未知
+pred_1 = model.predict(img_1)
 print(pred_1.shape)
 
-#####5. 训练
 import datetime
-####用tensorboard可视化
 log_dir=r"d:\\zbylog\\" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
 
-"""
-history = model.fit(db_train,
-                    epochs=2, 
-                    steps_per_epoch=2,
-                    validation_steps=2,
-                    validation_data=db_val,
-					callbacks=[tensorboard_callback])
-"""
-###用上面的fit来做训练，感觉没有对数据集进行测试，直接跳过去一样快，效果很差。
-
-
 history = model.fit(db_train,epochs=2, validation_data=db_val,callbacks=[tensorboard_callback] )
-##用上面这行，训练时间很长，感觉是在真正地干活。。。。。。
-##在我家的电脑是运行一个epoch需要时间5分钟。
-##虽然在干活，但是好像分类结果仍然很差劲！！！！！！！hnjxzby@2021-10-21 thur 19:45
 
-
-#####6. 评估模型(test)
 validation_steps = 20
 loss0,accuracy0 = model.evaluate(db_test, steps = validation_steps)
 print("loss: {:.2f}".format(loss0))
 print("accuracy: {:.2f}".format(accuracy0))
 
-####7. 打印学习曲线
 plt.plot(history.history['accuracy'])
 plt.plot(history.history['val_accuracy'])
 plt.title('model accuracy')
@@ -205,8 +125,6 @@ plt.xlabel('epoch')
 plt.legend(['train', 'test'], loc='upper left')
 plt.show()
 
-
-# 8 打印损失函数
 plt.plot(history.history['loss'])
 plt.plot(history.history['val_loss'])
 plt.title('model loss')
@@ -215,18 +133,6 @@ plt.xlabel('epoch')
 plt.legend(['train', 'test'], loc='upper left')
 plt.show()
 
-"""
-#history  = resnet.fit(db_train, validation_data=db_val, validation_freq=1, epochs=50,
-#           callbacks=[early_stopping])
-# 创建Early Stopping类，连续10次不下降则终止
-early_stopping = EarlyStopping(
-    monitor='val_accuracy',
-    min_delta=0.001,
-    patience=10
-)
-"""
-
-
 history = history.history
 print(history.keys())
 print(history['val_accuracy'])
@@ -234,7 +140,6 @@ print(history['accuracy'])
 
 ############################################################
 #hnjxzby@2021-10-17 画出混淆图
-
 
 from sklearn.metrics import confusion_matrix
 
@@ -250,26 +155,11 @@ print( confusion_matrix(bbbtrue,yy_pred))
 #labels = ['0','1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13','14','15','16','17','18','19','20','21','22','23','24']
 labels = ['Adialer.C', 'Agent.FYI', 'Allaple.A', 'Allaple.L', 'Alueron.gen!J', 'Autorun.K', 'C2LOP.P', 'C2LOP.gen!g', 'Dialplatform.B', 'Dontovo.A', 'Fakerean', 'Instantaccess', 'Lolyda.AA1', 'Lolyda.AA2', 'Lolyda.AA3', 'Lolyda.AT', 'Malex.gen!J', 'Obfuscator.AD', 'Rbot!gen', 'Skintrim.N', 'Swizzor.gen!E', 'Swizzor.gen!I', 'VB.AT', 'Wintrim.BX', 'Yuner.A']
 
-
 #################################################
 #我在用DenseNet121做实验时，第5类样本，全部被错误分类成第24类了！！！！！
 #用肉眼一看，这两类的图像还真的是很像，傻傻分不清！！有什么办法呢？hnjxzby@2021-10-06
 #现在我用VGG来实验，看看效果是否有提高？  结果也一样哦！！！！，也是分不清！！！hnjxzby@2021-10-22
 ################################################ 
- 
-'''
-具体解释一下re_label.txt和pr_label.txt这两个文件，比如你有100个样本
-去做预测，这100个样本中一共有10类，那么首先这100个样本的真实label你一定
-是知道的，一共有10个类别，用[0,9]表示，则re_label.txt文件中应该有100
-个数字，第n个数字代表的是第n个样本的真实label（100个样本自然就有100个
-数字）。
-同理，pr_label.txt里面也应该有1--个数字，第n个数字代表的是第n个样本经过
-你训练好的网络预测出来的预测label。
-这样，re_label.txt和pr_label.txt这两个文件分别代表了你样本的真实label和预测label，然后读到y_true和y_pred这两个变量中计算后面的混淆矩阵。当然，不一定非要使用这种txt格式的文件读入的方式，只要你最后将你的真实
-label和预测label分别保存到y_true和y_pred这两个变量中即可。
-'''
-###################################################
-
 
 y_true = bbbtrue
 y_pred = yy_pred
@@ -289,7 +179,6 @@ def plot_confusion_matrix(cm, title='Confusion Matrix', cmap=plt.cm.binary):
   plt.ylabel('True label')
   plt.xlabel('Predicted label')
  
-
 cm = confusion_matrix(y_true, y_pred)
 np.set_printoptions(precision=2)
 cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
@@ -315,9 +204,9 @@ plot_confusion_matrix(cm_normalized, title='Normalized confusion matrix')
 plt.savefig('confusion_matrix_VGG16.png', format='png')
 plt.show()
 
-###统计一下，我们的训练用时多长
+###统计一下，我们用时多长
 t2 = time.time()
 t3 =  t2-t1
-print("本次训练用时为：")
+print("本次用时为：")
 print(t3/3600)
 
